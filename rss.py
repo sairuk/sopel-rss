@@ -22,7 +22,7 @@ LOGGER = get_logger(__name__)
 
 MAX_HASHES_PER_FEED = 300
 
-UPDATE_INTERVAL = 60 # seconds
+UPDATE_INTERVAL = 300 # seconds
 
 ESCAPE_CHARACTER = '%'
 
@@ -118,7 +118,9 @@ BACKGROUND = {
     '18': '01',
 }
 
-CONFIG_SEPARATOR = ';'
+CONFIG_SEPARATOR = '|'
+
+FEED_SEPARATOR = '@'
 
 FORMAT_SEPARATOR = '+'
 
@@ -330,6 +332,8 @@ MESSAGES = {
         'unable to save config to disk!',
     'unable_to_save_hash_of_feed_to_sqlite_table':
         'unable to save hash "{}" of feed "{}" to sqlite table "{}"',
+    'runtime_errror':
+        'runtime error "{}"',
 }
 
 FEED_EXAMPLE = '''<?xml version="1.0" encoding="utf-8" ?>
@@ -403,7 +407,7 @@ def _config_concatenate_feeds(bot):
 
         feeds.append(newfeed)
         feeds.sort()
-    return [','.join(feeds)]
+    return [FEED_SEPARATOR.join(feeds)]
 
 
 def _config_concatenate_formats(bot):
@@ -476,22 +480,46 @@ def _config_get_templates(bot):
 # read config from disk to memory
 def _config_read(bot):
 
-    # read feeds from config file
-    if bot.config.rss.feeds and bot.config.rss.feeds[0]:
-        _config_split_feeds(bot, bot.config.rss.feeds)
+    config_read_results = {'feeds': 0, 'formats': 0, 'templates': 0 }
 
-    # read default formats from config file
-    if bot.config.rss.formats and bot.config.rss.formats[0]:
+    try:
+        # read feeds from config file
+        feeds = bot.config.rss.feeds[0].split(FEED_SEPARATOR)
+        LOGGER.info("reading feeds")
+        _config_split_feeds(bot, feeds)
+        config_read_results['feeds'] = 1
+    except:
+        LOGGER.error("failed to read feeds")
+        config_read_results['feeds'] = 0
+
+    try:
+        # read default formats from config file
         formats = bot.config.rss.formats[0].split(CONFIG_SEPARATOR)
+        LOGGER.info("reading formats")
         _config_split_formats(bot, formats)
+        config_read_results['formats'] = 1
+    except:
+        LOGGER.error("failed to read formats")
+        config_read_results['formats'] = 0
 
-    # read default templates from config file
-    if bot.config.rss.templates and bot.config.rss.templates[0]:
+    try:
+        # read default templates from config file
         templates = bot.config.rss.templates[0].split(CONFIG_SEPARATOR)
+        LOGGER.info("reading templates")
         _config_split_templates(bot, templates)
+        config_read_results['templates'] = 1
+    except:
+        LOGGER.error("failed to read templates")
+        config_read_results['templates'] = 0
 
-    message = 'read config from disk'
-    LOGGER.debug(message)
+    for value in config_read_results.values():
+        if value == 0:
+            message = 'failed to read config from disk'
+            LOGGER.error(message)
+            return
+        else:
+            message = 'read config from disk'
+            LOGGER.info(message)
 
 
 # save config from memory to disk
@@ -499,24 +527,34 @@ def _config_save(bot):
 
     # we want no more than MAX_HASHES in our database
     for feedname in bot.memory['rss']['feeds']:
-        _db_remove_old_hashes_from_database(bot, feedname)
+        try:
+            _db_remove_old_hashes_from_database(bot, feedname)
+        except RuntimeError as e:
+            message = messages['runtime_error'].format(e)
+            LOGGER.INFO(message)
 
     bot.config.core.channels = _config_concatenate_channels(bot)
     bot.config.rss.feeds = _config_concatenate_feeds(bot)
     bot.config.rss.formats = _config_concatenate_formats(bot)
     bot.config.rss.templates = _config_concatenate_templates(bot)
 
-    try:
-        bot.config.save()
-        message = MESSAGES['saved_config_to_disk']
-        LOGGER.debug(message)
-    except:
-        message = MESSAGES['unable_to_save_config_to_disk']
-        LOGGER.error(message)
+    # some kind of situation exists where the config is saved blank
+    # on reload or bot restart
+    if len(bot.config.rss.feeds) > 0:
 
+        try:
+            bot.config.save()
+            message = MESSAGES['saved_config_to_disk']
+            LOGGER.debug(message)
+        except:
+            message = MESSAGES['unable_to_save_config_to_disk']
+            LOGGER.error(message)
+    else:
+        message = "Not saving config to disk, feeds contains 0 items"
+        LOGGER.info(message)
 
 def _config_set_feeds(bot, value):
-    feeds = value.split(',')
+    feeds = value.split(FEED_SEPARATOR)
     return _config_split_feeds(bot, feeds)
 
 
@@ -536,6 +574,8 @@ def _config_split_feeds(bot, feeds):
     before = len(bot.memory['rss']['feeds'])
 
     for feed in feeds:
+
+        LOGGER.debug(feed)
 
         # split feed by pipes
         atoms = feed.split(CONFIG_SEPARATOR)
@@ -1040,6 +1080,8 @@ def _rss_join(bot, args):
 
 def _rss_list(bot, args):
 
+    LOGGER.info("Listing %d feeds" % len(bot.memory['rss']['feeds']))
+
     arg = ''
     if len(args) == 2:
         arg = args[1]
@@ -1096,9 +1138,14 @@ def _rss_update(bot, args=[]):
         # "RuntimeError: dictionary changed size during iteration"
         # which occurs if a feed has been deleted in the meantime
         if _feed_exists(bot, feedname):
-            url = bot.memory['rss']['feeds'][feedname]['url']
-            feedreader = FeedReader(url)
-            _feed_update(bot, feedreader, feedname, False)
+            try:
+                url = bot.memory['rss']['feeds'][feedname]['url']
+                feedreader = FeedReader(url)
+                _feed_update(bot, feedreader, feedname, False)
+            except RuntimeError as e:
+                message = messages['runtime_error'].format(e)
+                LOGGER.INFO(message)
+                bot.say(message)
 
 
 # Implementing an rss format handler
@@ -1355,7 +1402,7 @@ class Options:
 
                     # add the color escape character
                     irc += ESCAPE_COLOR
-                           
+
                     # add a foreground color
                     irc += key
 
