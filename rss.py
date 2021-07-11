@@ -323,7 +323,7 @@ MESSAGES = {
     'synopsis_rss':
         'synopsis: {}rss {}',
     'unable_to_read_feed':
-        'unable to read feed',
+        'unable to read feed "{}"',
     'unable_to_read_url_of_feed':
         'unable to read url "{}" of feed "{}"',
     'unable_to_save_config_to_disk':
@@ -731,13 +731,13 @@ def _feed_check(bot, feedreader, channel, feedname):
     # read feed
     feed = feedreader.get_feed()
     if not feed:
-        message = MESSAGES['unable_to_read_feed']
+        message = MESSAGES['unable_to_read_feed'].format(feedname)
         return [message]
 
     try:
         item = feed['entries'][0]
     except IndexError:
-        message = MESSAGES['unable_to_read_feed']
+        message = MESSAGES['unable_to_read_feed'].format(feedname)
         return [message]
 
     # check that feed items have either title or description
