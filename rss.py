@@ -833,7 +833,12 @@ def _feed_templates_example(bot, feedname):
     feedreader = MockFeedReader(FEED_EXAMPLE)
     feedoptions = bot.memory['rss']['options'][feedname].get_options()
     options = Options(bot, feedreader, feedoptions)
-    feed = feedreader.get_feed()
+    try:
+        feed = feedreader.get_feed()
+    except OSError as e:
+        message = messages['runtime_error'].format(e)
+        LOGGER.INFO(message)
+        return False
     item = feed['entries'][0]
     return options.get_post(feedname, item)
 
